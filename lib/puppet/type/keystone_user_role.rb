@@ -1,11 +1,15 @@
+# LP#1408531
+File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
+File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
+require 'puppet/util/openstack'
 Puppet::Type.newtype(:keystone_user_role) do
 
   desc <<-EOT
     This is currently used to model the creation of
     keystone users roles.
 
-    User roles are an assigment of a role to a user on
-    a certain tenant. The combintation of all of these
+    User roles are an assignment of a role to a user on
+    a certain tenant. The combination of all of these
     attributes is unique.
   EOT
 
@@ -13,30 +17,22 @@ Puppet::Type.newtype(:keystone_user_role) do
 
   newparam(:name, :namevar => true) do
     newvalues(/^\S+@\S+$/)
-    #munge do |value|
-    #  matchdata = /(\S+)@(\S+)/.match(value)
-    #  {
-    #    :user   =>  matchdata[1],
-    #    :tenant =>  matchdata[2]
-    #  }
-    #nd
   end
 
   newproperty(:roles,  :array_matching => :all) do
-  end
-
-  newproperty(:id) do
-    validate do |v|
-      raise(Puppet::Error, 'This is a read only property')
+    def insync?(is)
+      return false unless is.is_a? Array
+      # order of roles does not matter
+      is.sort == self.should.sort
     end
   end
 
   autorequire(:keystone_user) do
-    self[:name].split('@', 2).first
+    self[:name].rpartition('@').first
   end
 
   autorequire(:keystone_tenant) do
-    self[:name].split('@', 2).last
+    self[:name].rpartition('@').last
   end
 
   autorequire(:keystone_role) do
@@ -48,4 +44,9 @@ Puppet::Type.newtype(:keystone_user_role) do
     ['keystone']
   end
 
+  auth_param_doc=<<EOT
+If no other credentials are present, the provider will search in
+/etc/keystone/keystone.conf for an admin token and auth url.
+EOT
+  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
 end
