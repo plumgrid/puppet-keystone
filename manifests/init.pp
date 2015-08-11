@@ -61,7 +61,7 @@
 # [*token_provider*]
 #   (optional) Format keystone uses for tokens.
 #   Defaults to 'keystone.token.providers.uuid.Provider'
-#   Supports PKI and UUID.
+#   Supports PKI, PKIZ, Fernet, and UUID.
 #
 # [*token_driver*]
 #   (optional) Driver to use for managing tokens.
@@ -347,6 +347,30 @@
 #   (Optional) Run db sync on the node.
 #   Defaults to true
 #
+# [*enable_fernet_setup*]
+#   (Optional) Setup keystone for fernet tokens. This is typically only
+#   run on a single node, then the keys are replicated to the other nodes
+#   in a cluster. You would typically also pair this with a fernet token
+#   provider setting.
+#   Defaults to false
+#
+# [*fernet_key_repository*]
+#   (Optional) Location for the fernet key repository. This value must
+#   be set if enable_fernet_setup is set to true.
+#   Defaults to '/etc/keystone/fernet-keys'
+#
+# [*fernet_max_active_keys*]
+#   (Optional) Number of maximum active Fernet keys. Integer > 0.
+#   Defaults to undef
+#
+# [*default_domain*]
+#   (optional) When Keystone v3 support is enabled, v2 clients will need
+#   to have a domain assigned for certain operations.  For example,
+#   doing a user create operation must have a domain associated with it.
+#   This is the domain which will be used if a domain is needed and not
+#   explicitly set in the request.
+#   Defaults to undef (will use built-in Keystone default)
+#
 # == Dependencies
 #  None
 #
@@ -448,6 +472,10 @@ class keystone(
   $admin_workers          = max($::processorcount, 2),
   $public_workers         = max($::processorcount, 2),
   $sync_db                = true,
+  $enable_fernet_setup    = false,
+  $fernet_key_repository  = '/etc/keystone/fernet-keys',
+  $fernet_max_active_keys = undef,
+  $default_domain         = undef,
   # DEPRECATED PARAMETERS
   $mysql_module           = undef,
   $compute_port           = undef,
@@ -484,6 +512,8 @@ class keystone(
   File['/etc/keystone/keystone.conf'] -> Keystone_config<||> ~> Service[$service_name]
   Keystone_config<||> ~> Exec<| title == 'keystone-manage db_sync'|>
   Keystone_config<||> ~> Exec<| title == 'keystone-manage pki_setup'|>
+  Keystone_config<||> ~> Exec<| title == 'keystone-manage fernet_setup'|>
+
   include ::keystone::params
 
   package { 'keystone':
@@ -783,6 +813,7 @@ class keystone(
   }
 
   if $service_name == $::keystone::params::service_name {
+    $service_name_real = $::keystone::params::service_name
     if $validate_service {
       if $validate_auth_url {
         $v_auth_url = $validate_auth_url
@@ -815,6 +846,7 @@ class keystone(
       }
     }
   } elsif $service_name == 'httpd' {
+    include ::apache::params
     class { '::keystone::service':
       ensure       => 'stopped',
       service_name => $::keystone::params::service_name,
@@ -822,6 +854,7 @@ class keystone(
       provider     => $service_provider,
       validate     => false,
     }
+    $service_name_real = $::apache::params::service_name
   } else {
     fail('Invalid service_name. Either keystone/openstack-keystone for running as a standalone service, or httpd for being run by a httpd server')
   }
@@ -872,4 +905,67 @@ class keystone(
     }
   }
 
+  # Fernet tokens support
+  if $enable_fernet_setup {
+    validate_string($fernet_key_repository)
+
+    exec { 'keystone-manage fernet_setup':
+      path        => '/usr/bin',
+      user        => 'keystone',
+      refreshonly => true,
+      creates     => "${fernet_key_repository}/0",
+      notify      => Service[$service_name],
+      subscribe   => [Package['keystone'], Keystone_config['fernet_tokens/key_repository']],
+    }
+  }
+
+  if $fernet_key_repository {
+    keystone_config {
+        'fernet_tokens/key_repository':   value => $fernet_key_repository;
+    }
+  } else {
+    keystone_config {
+        'fernet_tokens/key_repository':   ensure => absent;
+    }
+  }
+
+  if $fernet_max_active_keys {
+    keystone_config {
+        'fernet_tokens/max_active_keys':   value => $fernet_max_active_keys;
+    }
+  } else {
+    keystone_config {
+        'fernet_tokens/max_active_keys':   ensure => absent;
+    }
+  }
+
+  if $default_domain {
+    keystone_domain { $default_domain:
+      ensure     => present,
+      enabled    => true,
+      is_default => true,
+      require    => File['/etc/keystone/keystone.conf'],
+      notify     => Exec['restart_keystone'],
+    }
+    anchor { 'default_domain_created':
+      require => Keystone_domain[$default_domain],
+    }
+    # Update this code when https://bugs.launchpad.net/keystone/+bug/1472285 is addressed.
+    # 1/ Keystone needs to be started before creating the default domain
+    # 2/ Once the default domain is created, we can query Keystone to get the default domain ID
+    # 3/ The Keystone_domain provider has in charge of doing the query and configure keystone.conf
+    # 4/ After such a change, we need to restart Keystone service.
+    # restart_keystone exec is doing 4/, it restart Keystone if we have a new default domain setted
+    # and if we manage the service to be enabled.
+    if $manage_service and $enabled {
+      exec { 'restart_keystone':
+        path        => ['/usr/sbin', '/usr/bin', '/sbin', '/bin/'],
+        command     => "service ${service_name_real} restart",
+        refreshonly => true,
+      }
+    }
+  }
+  anchor { 'keystone_started':
+    require => Service[$service_name]
+  }
 }

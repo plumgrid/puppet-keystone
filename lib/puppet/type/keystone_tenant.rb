@@ -1,7 +1,8 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+require 'puppet/provider/keystone/util'
+
 Puppet::Type.newtype(:keystone_tenant) do
 
   desc 'This type can be used to manage keystone tenants.'
@@ -34,17 +35,25 @@ Puppet::Type.newtype(:keystone_tenant) do
     end
   end
 
+  newproperty(:domain) do
+    desc 'Domain for tenant.'
+    newvalues(nil, /\S+/)
+    def insync?(is)
+      raise(Puppet::Error, "The domain cannot be changed from #{self.should} to #{is}") unless self.should == is
+      true
+    end
+  end
+
+  autorequire(:keystone_domain) do
+    # use the domain parameter if given, or the one from name if any
+    self[:domain] || Util.split_domain(self[:name])[1]
+  end
+
   # This ensures the service is started and therefore the keystone
   # config is configured IF we need them for authentication.
   # If there is no keystone config, authentication credentials
   # need to come from another source.
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started','default_domain_created']
   end
-
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
 end

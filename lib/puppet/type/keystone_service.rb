@@ -1,7 +1,7 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+
 Puppet::Type.newtype(:keystone_service) do
 
   desc 'This type can be used to manage keystone services.'
@@ -35,13 +35,7 @@ Puppet::Type.newtype(:keystone_service) do
   # config is configured IF we need them for authentication.
   # If there is no keystone config, authentication credentials
   # need to come from another source.
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started']
   end
-
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
 end

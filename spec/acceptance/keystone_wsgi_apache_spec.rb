@@ -1,6 +1,6 @@
 require 'spec_helper_acceptance'
 
-describe 'basic keystone server with resources' do
+describe 'keystone server running with Apache/WSGI with resources' do
 
   context 'default parameters' do
 
@@ -42,8 +42,14 @@ describe 'basic keystone server with resources' do
         database_connection => 'mysql://keystone:keystone@127.0.0.1/keystone',
         admin_token         => 'admin_token',
         enabled             => true,
+        service_name        => 'httpd',
         default_domain      => 'default_domain',
       }
+      include ::apache
+      class { '::keystone::wsgi::apache':
+        ssl => false,
+      }
+
       # "v2" admin and service
       class { '::keystone::roles::admin':
         email                  => 'test@example.tld',
@@ -122,11 +128,11 @@ describe 'basic keystone server with resources' do
     end
 
     describe port(5000) do
-      it { is_expected.to be_listening.with('tcp') }
+      it { is_expected.to be_listening }
     end
 
     describe port(35357) do
-      it { is_expected.to be_listening.with('tcp') }
+      it { is_expected.to be_listening }
     end
 
     describe cron do

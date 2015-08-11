@@ -1,7 +1,7 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+
 Puppet::Type.newtype(:keystone_endpoint) do
 
   desc 'Type for managing keystone endpoints.'
@@ -31,18 +31,12 @@ Puppet::Type.newtype(:keystone_endpoint) do
   end
 
   # we should not do anything until the keystone service is started
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started']
   end
 
   autorequire(:keystone_service) do
     (region, service_name) = self[:name].split('/')
     [service_name]
   end
-
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
 end
