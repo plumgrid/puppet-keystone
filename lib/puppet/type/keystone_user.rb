@@ -82,7 +82,7 @@ Puppet::Type.newtype(:keystone_user) do
   end
 
   newproperty(:domain) do
-    newvalues(nil, /\S+/)
+    newvalues(/\S+/)
     def insync?(is)
       raise(Puppet::Error, "The domain cannot be changed from #{self.should} to #{is}") unless self.should == is
       true

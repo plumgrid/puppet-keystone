@@ -37,7 +37,7 @@ Puppet::Type.newtype(:keystone_tenant) do
 
   newproperty(:domain) do
     desc 'Domain for tenant.'
-    newvalues(nil, /\S+/)
+    newvalues(/\S+/)
     def insync?(is)
       raise(Puppet::Error, "The domain cannot be changed from #{self.should} to #{is}") unless self.should == is
       true
