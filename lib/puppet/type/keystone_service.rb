@@ -1,7 +1,9 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+require 'puppet_x/keystone/composite_namevar'
+require 'puppet_x/keystone/type'
+
 Puppet::Type.newtype(:keystone_service) do
 
   desc 'This type can be used to manage keystone services.'
@@ -14,16 +16,13 @@ Puppet::Type.newtype(:keystone_service) do
   end
 
   newproperty(:id) do
-    validate do |v|
-      raise(Puppet::Error, 'This is a read only property')
-    end
+    include PuppetX::Keystone::Type::ReadOnly
   end
 
-  newproperty(:type) do
+  newparam(:type) do
+    isnamevar
     desc 'The type of service'
-    validate do |value|
-      fail('The service type is required.') unless value
-    end
+    include PuppetX::Keystone::Type::Required
   end
 
   newproperty(:description) do
@@ -35,13 +34,11 @@ Puppet::Type.newtype(:keystone_service) do
   # config is configured IF we need them for authentication.
   # If there is no keystone config, authentication credentials
   # need to come from another source.
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started']
   end
 
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
+  def self.title_patterns
+    PuppetX::Keystone::CompositeNamevar.basic_split_title_patterns(:name, :type)
+  end
 end

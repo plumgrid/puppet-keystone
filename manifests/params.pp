@@ -9,19 +9,17 @@ class keystone::params {
       $package_name                 = 'keystone'
       $service_name                 = 'keystone'
       $keystone_wsgi_script_path    = '/usr/lib/cgi-bin/keystone'
+      $keystone_wsgi_script_source  = '/usr/share/keystone/wsgi.py'
       $python_memcache_package_name = 'python-memcache'
+      $sqlite_package_name          = 'python-pysqlite2'
       $paste_config                 = undef
+      $pymysql_package_name         = 'python-pymysql'
       case $::operatingsystem {
         'Debian': {
           $service_provider            = undef
-          $keystone_wsgi_script_source = '/usr/share/keystone/wsgi.py'
         }
         default: {
-          # NOTE: Ubuntu does not currently provide the keystone wsgi script in the
-          # keystone packages.  When Ubuntu does provide the script, change this
-          # to use the correct path (which I'm assuming will be the same as Debian).
           $service_provider            = 'upstart'
-          $keystone_wsgi_script_source = 'puppet:///modules/keystone/httpd/keystone.py'
         }
       }
     }
@@ -30,9 +28,11 @@ class keystone::params {
       $service_name                 = 'openstack-keystone'
       $keystone_wsgi_script_path    = '/var/www/cgi-bin/keystone'
       $python_memcache_package_name = 'python-memcached'
+      $sqlite_package_name          = undef
       $service_provider             = undef
       $keystone_wsgi_script_source  = '/usr/share/keystone/keystone.wsgi'
       $paste_config                 = '/usr/share/keystone/keystone-dist-paste.ini'
+      $pymysql_package_name         = 'python2-PyMySQL'
     }
   }
 }

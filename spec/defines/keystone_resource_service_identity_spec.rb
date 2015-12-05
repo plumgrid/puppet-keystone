@@ -40,7 +40,6 @@ describe 'keystone::resource::service_identity' do
         :ensure   => 'present',
         :password => 'secrete',
         :email    => 'neutron@localhost',
-        :tenant   => 'services',
       )}
 
       it { is_expected.to contain_keystone_user_role("#{title}@services").with(
@@ -62,11 +61,80 @@ describe 'keystone::resource::service_identity' do
       )}
     end
 
-    context 'when omitting a required parameter password' do
+    context 'when trying to create a service without service_type' do
       let :params do
-        required_params.delete(:password)
+        required_params.delete(:service_type)
+        required_params
       end
-      it { expect { is_expected.to raise_error(Puppet::Error) } }
+      it_raises 'a Puppet::Error', /When configuring a service, you need to set the service_type parameter/
+    end
+
+    context 'when trying to create an endpoint without url' do
+      let :params do
+        required_params.delete(:public_url)
+        required_params
+      end
+      it_raises 'a Puppet::Error', /When configuring an endpoint, you need to set the _url parameters/
+    end
+
+    context 'with user domain' do
+      let :params do
+        required_params.merge({:user_domain => 'userdomain'})
+      end
+      it { is_expected.to contain_keystone_domain('userdomain').with(
+        :ensure   => 'present',
+      )}
+      it { is_expected.to contain_keystone_user(title).with(
+        :ensure   => 'present',
+        :password => 'secrete',
+        :email    => 'neutron@localhost',
+        :domain   => 'userdomain',
+      )}
+      it { is_expected.to contain_keystone_user_role("#{title}@services").with(
+        :ensure => 'present',
+        :roles  => ['admin'],
+      )}
+    end
+    context 'with user and project domain' do
+      let :params do
+        required_params.merge({
+          :user_domain => 'userdomain',
+          :project_domain => 'projdomain',
+        })
+      end
+      it { is_expected.to contain_keystone_user(title).with(
+        :ensure   => 'present',
+        :password => 'secrete',
+        :email    => 'neutron@localhost',
+        :domain   => 'userdomain',
+      )}
+      it { is_expected.to contain_keystone_domain('userdomain').with(
+        :ensure   => 'present',
+      )}
+      it { is_expected.to contain_keystone_user_role("#{title}@services").with(
+        :ensure => 'present',
+        :roles  => ['admin'],
+      )}
+    end
+    context 'with default domain only' do
+      let :params do
+        required_params.merge({
+          :default_domain => 'defaultdomain',
+        })
+      end
+      it { is_expected.to contain_keystone_user(title).with(
+        :ensure   => 'present',
+        :password => 'secrete',
+        :email    => 'neutron@localhost',
+        :domain   => 'defaultdomain',
+      )}
+      it { is_expected.to contain_keystone_domain('defaultdomain').with(
+        :ensure   => 'present',
+      )}
+      it { is_expected.to contain_keystone_user_role("#{title}@services").with(
+        :ensure => 'present',
+        :roles  => ['admin'],
+      )}
     end
 
   end

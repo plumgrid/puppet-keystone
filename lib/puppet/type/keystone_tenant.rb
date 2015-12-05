@@ -1,7 +1,10 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+require 'puppet/provider/keystone/util'
+require 'puppet_x/keystone/composite_namevar'
+require 'puppet_x/keystone/type'
+
 Puppet::Type.newtype(:keystone_tenant) do
 
   desc 'This type can be used to manage keystone tenants.'
@@ -34,17 +37,33 @@ Puppet::Type.newtype(:keystone_tenant) do
     end
   end
 
+  newparam(:domain) do
+    desc 'Domain for tenant.'
+    isnamevar
+    include PuppetX::Keystone::Type::DefaultDomain
+  end
+
+  autorequire(:keystone_domain) do
+    default_domain = catalog.resources.find do |r|
+      r.class.to_s == 'Puppet::Type::Keystone_domain' &&
+        r[:is_default] == :true &&
+        r[:ensure] == :present
+    end
+    rv = [self[:domain]]
+    # Only used to display the deprecation warning.
+    rv << default_domain.name unless default_domain.nil?
+    rv
+  end
+
   # This ensures the service is started and therefore the keystone
   # config is configured IF we need them for authentication.
   # If there is no keystone config, authentication credentials
   # need to come from another source.
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started', 'default_domain_created']
   end
 
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
+  def self.title_patterns
+    PuppetX::Keystone::CompositeNamevar.basic_split_title_patterns(:name, :domain)
+  end
 end

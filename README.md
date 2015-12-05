@@ -1,7 +1,7 @@
 keystone
 =======
 
-5.0.0 - 2014.2.0 - Juno
+7.0.0 - 2015.2 - Liberty
 
 #### Table of Contents
 
@@ -12,19 +12,18 @@ keystone
 5. [Limitations - OS compatibility, etc.](#limitations)
 6. [Development - Guide for contributing to the module](#development)
 7. [Contributors - Those with commits](#contributors)
-8. [Release Notes - Notes on the most recent updates to the module](#release-notes)
 
 Overview
 --------
 
-The keystone module is a part of [Stackforge](https://github.com/stackfoge), an effort by the Openstack infrastructure team to provide continuous integration testing and code review for Openstack and Openstack community projects not part of the core software.  The module its self is used to flexibly configure and manage the identify service for Openstack.
+The keystone module is a part of [OpenStack](https://github.com/openstack), an effort by the Openstack infrastructure team to provide continuous integration testing and code review for Openstack and Openstack community projects as part of the core software.  The module its self is used to flexibly configure and manage the identify service for Openstack.
 
 Module Description
 ------------------
 
 The keystone module is a thorough attempt to make Puppet capable of managing the entirety of keystone.  This includes manifests to provision region specific endpoint and database connections.  Types are shipped as part of the keystone module to assist in manipulation of configuration files.
 
-This module is tested in combination with other modules needed to build and leverage an entire Openstack software stack.  These modules can be found, all pulled together in the [openstack module](https://github.com/stackfoge/puppet-openstack).
+This module is tested in combination with other modules needed to build and leverage an entire Openstack software stack.  These modules can be found, all pulled together in the [openstack module](https://github.com/stackforge/puppet-openstack).
 
 Setup
 -----
@@ -35,11 +34,11 @@ Setup
 
 ### Installing keystone
 
-    example% puppet module install puppetlabs/keystone
+    example% puppet module install openstack/keystone
 
 ### Beginning with keystone
 
-To utilize the keystone module's functionality you will need to declare multiple resources.  The following is a modified excerpt from the [openstack module](https://github.com/stackfoge/puppet-openstack).  This is not an exhaustive list of all the components needed, we recommend you consult and understand the [openstack module](https://github.com/stackforge/puppet-openstack) and the [core openstack](http://docs.openstack.org) documentation.
+To utilize the keystone module's functionality you will need to declare multiple resources.  The following is a modified excerpt from the [openstack module](https://github.com/stackforge/puppet-openstack).  This is not an exhaustive list of all the components needed, we recommend you consult and understand the [openstack module](https://github.com/stackforge/puppet-openstack) and the [core openstack](http://docs.openstack.org) documentation.
 
 **Define a keystone node**
 
@@ -98,14 +97,42 @@ keystone_service { 'nova':
   description => 'Openstack Compute Service',
 }
 
+```
+
+Services can also be written with the type as a suffix:
+
+```puppet
+keystone_service { 'nova::type':
+  ensure      => present,
+  description => 'Openstack Compute Service',
+}
+
+
 # Setup nova keystone endpoint
 keystone_endpoint { 'example-1-west/nova':
+   ensure       => present,
+   type         => 'compute',
+   public_url   => "http://127.0.0.1:8774/v2/%(tenant_id)s",
+   admin_url    => "http://127.0.0.1:8774/v2/%(tenant_id)s",
+   internal_url => "http://127.0.0.1:8774/v2/%(tenant_id)s",
+}
+```
+
+Endpoints can also be written with the type as a suffix:
+
+```puppet
+keystone_endpoint { 'example-1-west/nova::compute':
    ensure       => present,
    public_url   => "http://127.0.0.1:8774/v2/%(tenant_id)s",
    admin_url    => "http://127.0.0.1:8774/v2/%(tenant_id)s",
    internal_url => "http://127.0.0.1:8774/v2/%(tenant_id)s",
 }
 ```
+
+Defining a endpoint without the type is supported in Liberty release
+for backward compatibility, but will be dropped in Mitaka, as this can
+lead to corruption of the endpoint database if omitted.  See (this
+bug)[https://bugs.launchpad.net/puppet-keystone/+bug/1506996]
 
 **Setting up a database for keystone**
 
@@ -132,12 +159,131 @@ class { 'postgresql::server': }
 class { 'keystone::db::postgresql': password => 'super_secret_db_password', }
 ```
 
+**About Keystone V3 syntax in keystone_user/keystone_tenant/keystone_user_role**
+
+A complete description of the syntax available for those resources are
+in `examples/user_project_user_role_composite_namevar.pp`
+
+**About Keystone V3 and default domain**
+
+***For users***
+
+With Keystone V3, domains made their appearance.  For backward
+compatibility a default domain is defined in the `keystone.conf` file.
+All the V2 resources are then assigned to this default domain.  The
+default domain id is by default `default` associated with the name
+`Default`.
+
+What it means is that this user:
+
+```puppet
+keystone_user { 'my_non_full_qualified_user':
+  ensure => present
+}
+```
+
+will be assigned to the `Default` domain.
+
+The same is true for `keystone_tenant` and `keystone_user_role`:
+
+```puppet
+keystone_tenant { 'project_one':
+  ensure => present
+}
+
+keystone_user_role { 'user_one@project_one':
+  ensure => present,
+  roles  => ['admin']
+}
+```
+
+will be assigned to the `Default` domain.
+
+Now, you can change the default domain if you want.  But then the
+puppet resource you defined will *have* to be fully qualified.
+
+So, for instance, if you change the default domain to be
+`my_new_default`, then you'll have to do:
+
+```puppet
+keystone_user { 'full_qualified_user::my_new_default':
+  ensure => present
+}
+keystone_tenant { 'project_one::my_new_default':
+  ensure => present
+}
+
+keystone_user_role { 'user_one::my_new_default@project_one::my_new_default':
+  ensure => present,
+  roles  => ['admin']
+}
+```
+
+as the module will *always* assign a resource without domain to
+the `Default` domain.
+
+A depreciation warning will be visible in the log when you have
+changed the default domain id and used an non fully qualified name for
+you resource.
+
+In Mitaka, a depreciation warning will be displayed all the time if
+you used non fully qualified resource.
+
+After Mitaka all the resources will have to be fully qualified.
+
+***For developers***
+
+Other module can try to find user/tenant resource using Puppet's
+indirection.  The rule for the name of the resources are this:
+
+ 1. fully qualified if domain is not 'Default';
+ 2. short form if domain is 'Default'
+
+This is for backward compatibility.
+
+Note that, as stated above, the 'Default' domain is hardcoded.  It is
+not related to the real default domain which can be set to something
+else.  But then again, you will have to set the fully qualified name.
+
+You can check `spec/acceptance/default_domain_spec.rb` to have a
+example of the behavior described here.
+
 Implementation
 --------------
 
 ### keystone
 
 keystone is a combination of Puppet manifest and ruby code to delivery configuration and extra functionality through types and providers.
+
+### Types
+
+#### keystone_config
+
+The `keystone_config` provider is a children of the ini_setting provider. It allows one to write an entry in the `/etc/keystone/keystone.conf` file.
+
+```puppet
+keystone_config { 'DEFAULT/verbose' :
+  value => true,
+}
+```
+
+This will write `verbose=true` in the `[DEFAULT]` section.
+
+##### name
+
+Section/setting name to manage from `keystone.conf`
+
+##### value
+
+The value of the setting to be defined.
+
+##### secret
+
+Whether to hide the value from Puppet logs. Defaults to `false`.
+
+##### ensure_absent_val
+
+If value is equal to ensure_absent_val then the resource will behave as if `ensure => absent` was specified. Defaults to `<SERVICE DEFAULT>`
 
 Limitations
 ------------
@@ -170,117 +316,4 @@ Developer documentation for the entire puppet-openstack project.
 Contributors
 ------------
 
-* https://github.com/stackforge/puppet-keystone/graphs/contributors
-
-Release Notes
--------------
-
-**5.0.0**
-
-* Stable Juno release
-* Updated token driver, logging, and ldap config parameters for Juno
-* Changed admin_roles parameter to accept an array in order to configure multiple admin roles
-* Installs python-ldappool package for ldap
-* Added new parameters to keystone class to configure pki signing
-* Changed keystone class to inherit from keystone::params
-* Changed pki_setup to run regardless of token provider
-* Made UUID the default token provider
-* Made keystone_user_role idempotent
-* Added parameters to control whether to configure users
-* Stopped managing _member_ role since it is created automatically
-* Stopped overriding token_flush log file
-* Changed the usage of admin_endpoint to not include the API version
-* Allowed keystone_user_role to accept email as username
-* Added ability to set up keystone using Apache mod_wsgi
-* Migrated the keystone::db::mysql class to use openstacklib::db::mysql and deprecated the mysql_module parameter
-* Installs python-memcache when using token driver memcache
-* Enabled setting cert and key paths for PKI token signing
-* Added parameters for SSL communication between keystone and rabbitmq
-* Added parameter ignore_default_tenant to keystone::role::admin
-* Added parameter service_provider to keystone class
-* Added parameters for service validation to keystone class
-
-**4.2.0**
-
-* Added class for extended logging options
-* Fixed rabbit password leaking
-* Added parameters to set tenant descriptions
-* Fixed keystone user authorization error handling
-
-**4.1.0**
-
-* Added token flushing with cron.
-* Updated database api for consistency with other projects.
-* Fixed admin_token with secret parameter.
-* Fixed deprecated catalog driver.
-
-**4.0.0**
-
-* Stable Icehouse release.
-* Added template_file parameter to specify catalog.
-* Added keystone::config to handle additional custom options.
-* Added notification parameters.
-* Added support for puppetlabs-mysql 2.2 and greater.
-* Fixed deprecated sql section header in keystone.conf.
-* Fixed deprecated bind_host parameter.
-* Fixed example for native type keystone_service.
-* Fixed LDAP module bugs.
-* Fixed variable for host_access dependency.
-* Reduced default token duration to one hour.
-
-**3.2.0**
-
-* Added ability to configure any catalog driver.
-* Ensures log_file is absent when using syslog.
-
-**3.1.1**
-
-* Fixed inconsistent variable for mysql allowed hosts.
-
-**3.1.0**
-
-* Added ability to disable pki_setup.
-* Load tenant un-lazily if needed.
-* Add log_dir param, with option to disable.
-* Updated endpoint argument.
-* Added support to enable SSL.
-* Removes setting of Keystone endpoint by default.
-* Relaxed regex when keystone refuses connections.
-
-**3.0.0**
-
-* Major release for OpenStack Havana.
-* Fixed duplicated keystone endpoints.
-* Refactored keystone_endpoint to use prefetch and flush paradigm.
-* Switched from signing/format to token/provider.
-* Created memcache_servers option to allow for multiple cache servers.
-* Enabled serving Keystone from Apache mod_wsgi.
-* Moved db_sync to its own class.
-* Removed creation of Member role.
-* Improved performance of Keystone providers.
-* Updated endpoints to support paths and ssl.
-* Added support for token expiration parameter.
-
-**2.2.0**
-
-* Optimized tenant and user queries.
-* Added syslog support.
-* Added support for token driver backend.
-* Various bug and lint fixes.
-
-**2.1.0**
-
-* Tracks release of puppet-quantum
-* Fixed allowed_hosts contitional statement
-* Pinned depedencies
-* Select keystone endpoint based on SSL setting
-* Improved tenant_hash usage in keystone_tenant
-* Various cleanup and bug fixes.
-
-**2.0.0**
-
-* Upstream is now part of stackfoge.
-* keystone_user can be used to change passwords.
-* service tenant name now configurable.
-* keystone_user is now idempotent.
-* Various cleanups and bug fixes.
+* https://github.com/openstack/puppet-keystone/graphs/contributors

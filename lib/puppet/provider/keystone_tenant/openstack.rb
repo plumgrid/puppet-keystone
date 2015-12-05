@@ -7,13 +7,17 @@ Puppet::Type.type(:keystone_tenant).provide(
 
   desc "Provider to manage keystone tenants/projects."
 
+  @credentials = Puppet::Provider::Openstack::CredentialsV3.new
+
+  include PuppetX::Keystone::CompositeNamevar::Helpers
+
   def initialize(value={})
     super(value)
     @property_flush = {}
   end
 
   def create
-    properties = []
+    properties = [resource[:name]]
     if resource[:enabled] == :true
       properties << '--enable'
     elsif resource[:enabled] == :false
@@ -23,78 +27,83 @@ Puppet::Type.type(:keystone_tenant).provide(
       properties << '--description'
       properties << resource[:description]
     end
-    @instance = request('project', 'create', resource[:name], resource[:auth], properties)
+    properties << '--domain'
+    properties << resource[:domain]
+
+    @property_hash = self.class.request('project', 'create', properties)
+    @property_hash[:name]   = resource[:name]
+    @property_hash[:domain] = resource[:domain]
+    @property_hash[:ensure] = :present
+  rescue Puppet::ExecutionFailure => e
+    if e.message =~ /No domain with a name or ID of/
+      raise(Puppet::Error, "No project #{resource[:name]} with domain #{resource[:domain]} found")
+    else
+      raise
+    end
   end
 
+  mk_resource_methods
+
   def exists?
-    ! instance(resource[:name]).empty?
+    @property_hash[:ensure] == :present
   end
 
   def destroy
-    request('project', 'delete', resource[:name], resource[:auth])
+    self.class.request('project', 'delete', id)
+    @property_hash.clear
   end
-
 
   def enabled=(value)
     @property_flush[:enabled] = value
   end
 
   def enabled
-    bool_to_sym(instance(resource[:name])[:enabled])
+    bool_to_sym(@property_hash[:enabled])
   end
-
 
   def description=(value)
     @property_flush[:description] = value
   end
 
-  def description
-    instance(resource[:name])[:description]
-  end
-
-
-  def id
-    instance(resource[:name])[:id]
-  end
-
   def self.instances
-    list = request('project', 'list', nil, nil, '--long')
-    list.collect do |project|
+    if default_domain_changed
+      warning(default_domain_deprecation_message)
+    end
+    projects = request('project', 'list', '--long')
+    projects.collect do |project|
+      domain_name = domain_name_from_id(project[:domain_id])
       new(
-        :name        => project[:name],
+        :name        => resource_to_name(domain_name, project[:name]),
         :ensure      => :present,
         :enabled     => project[:enabled].downcase.chomp == 'true' ? true : false,
         :description => project[:description],
+        :domain      => domain_name,
+        :domain_id   => project[:domain_id],
         :id          => project[:id]
       )
     end
   end
 
-  def instances
-    instances = request('project', 'list', nil, resource[:auth], '--long')
-    instances.collect do |project|
-      {
-        :name        => project[:name],
-        :enabled     => project[:enabled].downcase.chomp == 'true' ? true : false,
-        :description => project[:description],
-        :id          => project[:id]
-      }
+  def self.prefetch(resources)
+    prefetch_composite(resources) do |sorted_namevars|
+      domain = sorted_namevars[0]
+      name   = sorted_namevars[1]
+      resource_to_name(domain, name)
     end
-  end
-
-  def instance(name)
-    @instance ||= instances.select { |instance| instance[:name] == name }.first || {}
   end
 
   def flush
     options = []
-    if @property_flush
-      (options << '--enable') if @property_flush[:enabled] == :true
-      (options << '--disable') if @property_flush[:enabled] == :false
-      # There is a --description flag for the set command, but it does not work if the value is empty
-      (options << '--property' << "description=#{resource[:description]}") if @property_flush[:description]
-      request('project', 'set', resource[:name], resource[:auth], options) unless options.empty?
+    if @property_flush && !@property_flush.empty?
+      case @property_flush[:enabled]
+      when :true
+        options << '--enable'
+      when :false
+        options << '--disable'
+      end
+      (options << "--description=#{resource[:description]}") if @property_flush[:description]
+      self.class.request('project', 'set', [id] + options) unless options.empty?
+      @property_flush.clear
     end
   end
-
 end

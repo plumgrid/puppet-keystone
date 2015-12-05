@@ -1,7 +1,11 @@
 # LP#1408531
 File.expand_path('../..', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
 File.expand_path('../../../../openstacklib/lib', File.dirname(__FILE__)).tap { |dir| $LOAD_PATH.unshift(dir) unless $LOAD_PATH.include?(dir) }
-require 'puppet/util/openstack'
+
+require 'puppet/provider/keystone/util'
+require 'puppet_x/keystone/composite_namevar'
+require 'puppet_x/keystone/type'
+
 Puppet::Type.newtype(:keystone_user) do
 
   desc 'Type for managing keystone users.'
@@ -10,14 +14,6 @@ Puppet::Type.newtype(:keystone_user) do
 
   newparam(:name, :namevar => true) do
     newvalues(/\S+/)
-  end
-
-  newparam(:ignore_default_tenant) do
-    newvalues(/(t|T)rue/, /(f|F)alse/, true, false)
-    defaultto(false)
-    munge do |value|
-      value.to_s.downcase.to_sym
-    end
   end
 
   newproperty(:enabled) do
@@ -32,9 +28,9 @@ Puppet::Type.newtype(:keystone_user) do
     newvalues(/\S+/)
     def change_to_s(currentvalue, newvalue)
       if currentvalue == :absent
-        return "created password"
+        return 'created password'
       else
-        return "changed password"
+        return 'changed password'
       end
     end
 
@@ -45,10 +41,6 @@ Puppet::Type.newtype(:keystone_user) do
     def should_to_s( newvalue )
       return '[new password redacted]'
     end
-  end
-
-  newproperty(:tenant) do
-    newvalues(/\S+/)
   end
 
   newproperty(:email) do
@@ -69,18 +61,29 @@ Puppet::Type.newtype(:keystone_user) do
     end
   end
 
-  autorequire(:keystone_tenant) do
-    self[:tenant]
+  newparam(:domain) do
+    isnamevar
+    include PuppetX::Keystone::Type::DefaultDomain
+  end
+
+  autorequire(:keystone_domain) do
+    default_domain = catalog.resources.find do |r|
+      r.class.to_s == 'Puppet::Type::Keystone_domain' &&
+        r[:is_default] == :true &&
+        r[:ensure] == :present
+    end
+    rv = [self[:domain]]
+    # Only used to display the deprecation warning.
+    rv << default_domain.name unless default_domain.nil?
+    rv
   end
 
   # we should not do anything until the keystone service is started
-  autorequire(:service) do
-    ['keystone']
+  autorequire(:anchor) do
+    ['keystone_started', 'default_domain_created']
   end
 
-  auth_param_doc=<<EOT
-If no other credentials are present, the provider will search in
-/etc/keystone/keystone.conf for an admin token and auth url.
-EOT
-  Puppet::Util::Openstack.add_openstack_type_methods(self, auth_param_doc)
+  def self.title_patterns
+    PuppetX::Keystone::CompositeNamevar.basic_split_title_patterns(:name, :domain)
+  end
 end
